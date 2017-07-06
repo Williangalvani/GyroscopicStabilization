@@ -11,7 +11,7 @@
 
 #define MPU6050_I2C_ADDRESS 0x68
 
-#define FREQ  100.0 // sample freq in Hz
+#define SAMPLING_FREQ  100.0 // sample SAMPLING_FREQ in Hz
 
 // Bluetooth transmitter, used optionally
 // SoftwareSerial BTSerial(2, 3); // RX | TX
