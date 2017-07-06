@@ -29,8 +29,18 @@ float controle_anterior=0;
 
 float theta = 0;
 
+double rho = 0;
+double drho = 0;
+double dtheta = 0;
+
+double obs_rho = 0;
+double obs_theta = 0;
+double obs_drho = 0;
+
+
 double gyrXoffs = -97.00, gyrYoffs = 63.00, gyrZoffs = -18.00;
 
+long start;
 
 void setup()
 {      
@@ -65,13 +75,13 @@ void setup()
 
   // CONFIG:
   // set sample rate
-  // sample rate FREQ = Gyro sample rate / (sample_div + 1)
-  // 1kHz / (div + 1) = FREQ  
-  // reg_value = 1khz/FREQ - 1
-  sample_div = 1000 / FREQ - 1;
+  // sample rate SAMPLING_FREQ = Gyro sample rate / (sample_div + 1)
+  // 1kHz / (div + 1) = SAMPLING_FREQ  
+  // reg_value = 1khz/SAMPLING_FREQ - 1
+  sample_div = 1000 / SAMPLING_FREQ - 1;
   i2c_write_reg (MPU6050_I2C_ADDRESS, 0x19, sample_div);
 
-
+  
 //  Serial.write("Calibrating...");
   digitalWrite(13, HIGH);
   //calibrate();
@@ -83,8 +93,7 @@ void setup()
   esc.writeMicroseconds(1000);
   delay(4500);
   esc.writeMicroseconds(1700);
- 
-  delay(10000);
+  start = millis();
 
 }
 
@@ -110,9 +119,9 @@ void imu()
   ax = atan2(accY, sqrt( pow(accX, 2) + pow(accZ, 2))) * 180 / M_PI;
 
   // angles based on gyro (deg/s)
-  gx = gx + gyrX / FREQ;
-  gy = gy - gyrY / FREQ;
-  gz = gz + gyrZ / FREQ;
+  gx = gx + gyrX / SAMPLING_FREQ;
+  gy = gy - gyrY / SAMPLING_FREQ;
+  gz = gz + gyrZ / SAMPLING_FREQ;
 
   // complementary filter
   // tau = DT*(A)/(1-A)
@@ -127,45 +136,11 @@ void imu()
   end_time = millis();
 
   // remaining time to complete sample time
-  delay(((1/FREQ) * 1000) - (end_time - start_time));
+  delay(((1/SAMPLING_FREQ) * 1000) - (end_time - start_time));
   //Serial.println(end_time - start_time);
 }
 
 
-
-void controla()
-{
-  float rho = gx+5;
-  float drho = gyrX;
-    
-  float dtheta = (theta+controle)/(2*FREQ);
-
-  
-  //controle = -18 * rho - 50 * drho - 4 * dtheta ; // Pólos -12
-  controle = -44 * rho - 24 * drho - 3.7 * dtheta ; // Pólos -12
-  //controle = -72 * rho - 57 * theta   - 10 * drho ; // Pólos -12
-  
-
-  theta +=  dtheta;
-  
-  theta = min(90,max(-90,theta));
-  controle_servo = mapfloat(theta, -90, 90, 2000, 1000); 
-  controle_servo = min(max(controle_servo,800),2200);
-  
-
-
-  servo.writeMicroseconds(controle_servo);
-
-}
-
-
-void loop(){
-  imu();
-  Serial.print(gx);
-  Serial.print(",");
-  Serial.println(controle);
-  controla();
-}
 
 void calibrate(){
 
@@ -275,3 +250,67 @@ int i2c_write_reg(int addr, int reg, uint8_t data)
   return (error);
 }
 
+
+void atuacao()
+{
+
+  controle_servo = mapfloat(theta, -90, 90, 2000, 1000); 
+  controle_servo = min(max(controle_servo,800),2200);
+
+  servo.writeMicroseconds(controle_servo);
+
+}
+
+
+void observador()
+{
+   double y = rho + drho;
+
+   double dobs_rho =     1.5892*y    -0.0024 * controle   -2.1620 * obs_rho;
+   double dobs_drho = - -0.5518*y  +  0.0100 * controle +  2.1037 * obs_drho;
+   double dobs_theta =  16.9083*y    -0.4799 * controle  -31.5217 * obs_theta;
+
+   obs_theta+= dobs_theta/SAMPLING_FREQ;
+   obs_rho+= dobs_rho/SAMPLING_FREQ;
+   obs_drho+= dobs_drho/SAMPLING_FREQ;
+}
+
+
+
+void controla()
+{
+  float rho1 = rho;
+  rho = gx+5;
+  drho = (rho - rho1)*SAMPLING_FREQ;
+  dtheta = (theta+ (theta+controle))/(2*SAMPLING_FREQ);
+  theta +=  dtheta;
+  theta = min(90,max(-90,theta));
+  
+
+  controle = -34 * rho - 18 * drho + 3.1 * theta ; 
+  //ontrole = -44 * rho - 24 * drho + 3.7 * theta ; 
+  //controle = -8.9 * obs_rho - 7.7 * obs_drho + 0.78 * obs_theta ; 
+  
+
+
+
+}
+
+
+void loop(){
+  imu();
+  Serial.print(theta);
+  Serial.print(",");  
+  Serial.println(obs_theta);
+  //Serial.print(",");
+  //Serial.print(drho);
+  //Serial.print(",");
+  //Serial.println(controle);
+
+  if (millis()-start > 10000)
+  {
+    controla();
+    observador();
+    atuacao();
+  }
+}
